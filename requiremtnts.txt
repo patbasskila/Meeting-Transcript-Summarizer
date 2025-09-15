@@ -1,0 +1,10 @@
+Flask
+torch
+transformers
+faiss-cpu
+numpy
+requests
+httpx[http2]
+openai
+scikit-learn
+python-docx
