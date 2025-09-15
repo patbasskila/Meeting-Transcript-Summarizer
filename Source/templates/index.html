@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meeting Transcript Summarizer</title>
+  <link href="https://fonts.googleapis.com/css?family=Roboto:400,700" rel="stylesheet">
+  <style>
+    body { font-family: 'Roboto', sans-serif; margin: 0; background: #f5f7fa; color: #333; }
+    header { background: #00249C; color: #fff; padding: 25px 0; text-align: center; }
+    header h1 { margin: 0; font-size: 2em; font-weight: 700; }
+    header p { margin: 8px 0 0; font-size: 1.1em; opacity: 0.9; }
+
+    main { padding: 40px 20px; display: flex; justify-content: center; }
+    .form-container { background: #fff; padding: 30px; border-radius: 12px; max-width: 720px; width: 100%;
+                      box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+
+    .form-section { margin-bottom: 25px; }
+    .form-section label { font-weight: 600; display: block; margin-bottom: 8px; }
+    .form-section input, .form-section textarea, .form-section select {
+      width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 1em; font-family: inherit;
+    }
+    .form-section textarea { resize: vertical; min-height: 120px; }
+
+    .radio-group { display: flex; gap: 20px; }
+    .radio-group label { font-weight: 400; cursor: pointer; }
+
+    .hint { font-size: 0.85em; color: #666; margin-top: 4px; }
+    .d-none { display: none; }
+
+    button { background: #00249C; color: #fff; border: none; padding: 12px 24px; font-size: 1em;
+             border-radius: 6px; cursor: pointer; }
+    button:hover { background: #001a70; }
+
+    .status-message { margin-top: 15px; text-align: center; font-weight: 500; }
+    .error { color: #b00020; }
+    .success { color: #0b6623; }
+
+    footer { text-align: center; padding: 15px; font-size: 0.9em; color: #777; margin-top: 40px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Meeting Transcript Summarizer</h1>
+    <p>Generate structured summaries and share them instantly with your team</p>
+  </header>
+
+  <main>
+    <div class="form-container">
+      <form id="transcript-form">
+        <!-- Transcript Input Mode -->
+        <div class="form-section">
+          <label>Transcript Input</label>
+          <div class="radio-group">
+            <label><input type="radio" id="uploadOption" name="inputType" value="upload" checked> Upload File</label>
+            <label><input type="radio" id="pasteOption" name="inputType" value="paste"> Paste Text</label>
+          </div>
+          <div id="transcriptFile">
+            <input type="file" name="transcript" accept=".txt,.docx">
+            <div class="hint">Accepted formats: .txt, .docx</div>
+          </div>
+          <div id="transcriptText" class="d-none">
+            <textarea placeholder="Paste the transcript here..."></textarea>
+          </div>
+        </div>
+
+        <!-- Email Recipients -->
+        <div class="form-section">
+          <label for="email">Recipients</label>
+          <input type="text" id="email" placeholder="user1@example.com, user2@example.com">
+          <div class="hint">Enter one or more @example.com emails, separated by commas (max 10)</div>
+        </div>
+
+        <!-- Summary Template Dropdown -->
+        <div class="form-section">
+          <label for="promptTemplate">Summary Template (Optional)</label>
+          <select id="promptTemplate">
+            <option value="">Default summary template will be used (no selection)</option>
+            <option value="executive">Executive Summary -- decisions & owners</option>
+            <option value="detailed">Detailed Technical Summary</option>
+            <option value="action">Action Items -- task-focused</option>
+            <option value="decision">Risk & Issues -- call out blockers</option>
+            <option value="timeline">Narrative (Detailed)</option>
+            <option value="custom">Custom Prompt (Advanced)</option>
+          </select>
+          <div id="templateDescription" class="hint d-none"></div>
+        </div>
+
+        <!-- Template Textarea -->
+        <div class="form-section d-none" id="customPromptSection">
+          <label for="customPrompt">Prompt Instructions (editable)</label>
+          <textarea id="customPrompt" name="custom_prompt" placeholder="Provide your own prompt instructions..."></textarea>
+        </div>
+
+        <!-- Submit -->
+        <div class="form-section" style="text-align:center;">
+          <button type="submit">Submit Transcript</button>
+        </div>
+
+        <div id="status" class="status-message"></div>
+      </form>
+    </div>
+  </main>
+
+  <footer>
+    <p>&copy; 2025 Sample Project. All Rights Reserved.</p>
+  </footer>
+
+  <!-- jQuery + Live Status Script -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script>
+    $(function() {
+      const templateMap = {
+        executive: { description: "Concise 2–3 paragraph high-level overview with major themes and outcomes.", text: "Please generate a concise executive summary of the meeting. Focus on the key outcomes, main decisions, overall sentiment, and major discussion points. Structure the summary in 2–3 paragraphs, highlighting the strategic implications and high-level takeaways for stakeholders. Do not use headings, bullets, or numbered lists." },
+        detailed: { description: "Comprehensive technical summary capturing key discussions and details.", text: "Provide a detailed technical summary of the meeting. Include all major topics, technical challenges, solutions proposed, supporting evidence, and any referenced data or documents. Organize the summary logically so it can be used as a reference for project implementation or technical review." },
+        action: { description: "Summary focused on extracting clear action items with owners and deadlines.", text: "Summarize this meeting by listing all actionable items. For each action item, include a clear description, the assigned owner(s), deadlines or milestones, and any dependencies." },
+        decision: { description: "Summarize potential risks, blockers, and unresolved issues with mitigations.", text: "Identify all risks, issues, and blockers discussed during the meeting. For each item, include a brief description, potential impact, severity, and proposed mitigation strategies." },
+        timeline: { description: "Chronological, story-like account of the meeting discussions.", text: "Provide a narrative-style summary of the meeting in chronological order, capturing key points, decisions, and flow of conversation." },
+        custom: { description: "Provide your own custom prompt instructions (Advanced).", text: "" }
+      };
+
+      // Toggle transcript input method
+      $('#uploadOption').change(() => { $('#transcriptFile').removeClass('d-none'); $('#transcriptText').addClass('d-none'); });
+      $('#pasteOption').change(() => { $('#transcriptText').removeClass('d-none'); $('#transcriptFile').addClass('d-none'); });
+
+      // Update template description and textarea
+      $('#promptTemplate').change(function() {
+        const selected = $(this).val();
+        if (selected && templateMap[selected]) {
+          $('#templateDescription').text(templateMap[selected].description).removeClass('d-none');
+          $('#customPromptSection').removeClass('d-none');
+          $('#customPrompt').val(templateMap[selected].text);
+        } else {
+          $('#templateDescription').addClass('d-none');
+          $('#customPromptSection').addClass('d-none');
+          $('#customPrompt').val('');
+        }
+      });
+
+      // Submit form with live status updates
+      $('#transcript-form').submit(function(e) {
+        e.preventDefault();
+        const statusEl = $('#status');
+        const inputType = $('input[name="inputType"]:checked').val();
+        const email = $('#email').val().trim();
+        const promptText = $('#customPrompt').val().trim();
+        const formData = new FormData();
+
+        if (!email) { statusEl.text('Email is required.').css('color','red'); return; }
+        const emails = email.split(',').map(e => e.trim());
+        for (let em of emails) {
+          if (!em.endsWith('@example.com')) {
+            statusEl.text('All emails must end with @example.com').css('color','red');
+            return;
+          }
+        }
+        formData.append('email', email);
+        if (promptText) { formData.append('custom_prompt', promptText); }
+
+        if (inputType === 'upload') {
+          const fileInput = $('#transcriptFile input[type=file]')[0].files[0];
+          if (!fileInput) { statusEl.text('Please upload a transcript file.').css('color','red'); return; }
+          formData.append('transcript', fileInput);
+        } else {
+          const text = $('#transcriptText textarea').val().trim();
+          if (!text) { statusEl.text('Please paste transcript text.').css('color','red'); return; }
+          formData.append('transcript_text', text);
+        }
+
+        statusEl.text('Uploading and processing...').css('color','blue');
+
+        $.ajax({
+          url: '/submit-transcript',
+          type: 'POST',
+          data: formData,
+          processData: false,
+          contentType: false,
+          success: function(response) {
+            if (response.job_id) {
+              const jobId = response.job_id;
+              const interval = setInterval(() => {
+                $.ajax({
+                  url: '/job-status/' + jobId,
+                  type: 'GET',
+                  success: function(job) {
+                    if (job.error) {
+                      statusEl.text(job.error).css('color','red');
+                      clearInterval(interval);
+                    } else if (job.status === 'completed' || job.status === 'failed') {
+                      statusEl.text('Process finished. Check your email for results.').css('color','green');
+                      clearInterval(interval);
+                    } else {
+                      statusEl.text('Status: ' + job.status + "...").css('color','blue');
+                    }
+                  },
+                  error: function() {
+                    statusEl.text('Error checking job status.').css('color','red');
+                    clearInterval(interval);
+                  }
+                });
+              }, 3000);
+            } else if (response.error) {
+              statusEl.text(response.error).css('color','red');
+            }
+          },
+          error: function(xhr) {
+            const err = xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Submission failed.';
+            statusEl.text(err).css('color','red');
+          }
+        });
+      });
+    });
+  </script>
+</body>
+</html>
